@@ -1,0 +1,168 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "freertos/queue.h"
+#include "driver/gpio.h"
+
+// SemaphoreHandle_t xBinarySemaphore;
+// static int button = 0;
+// #define INPUT_PIN 0
+
+// // static void IRAM_ATTR gpio_interrupt_hander(void *args){
+// //     int pinNumber = (int)args;
+// //     xQueueSendFromISR(interputQueue, &pinNumber, NULL);
+// //     xSemaphoreGive(xBinarySemaphore);
+// //     // button = 1;
+// // }
+
+// void vHandlerTask(void* pvParameters)
+// {
+//     while (1)
+//     {
+//         if (xSemaphoreTake(xBinarySemaphore, portMAX_DELAY)) {
+//             printf("Handler task - Processing event.\n");
+//         }
+//     }
+// }
+
+// void vPeriodicTask(void* pvParameters)
+// {
+//     const TickType_t xDelay500ms = pdMS_TO_TICKS(100);
+//     while (1)
+//     {
+//         vTaskDelay(xDelay500ms);
+//         // xSemaphoreGive(xBinarySemaphore);
+//         printf("Periodic task - About to generate interrupt.\n");
+//         // if(button) button = 0;
+//         xSemaphoreGive(xBinarySemaphore);
+//         xSemaphoreGive(xBinarySemaphore); 
+//         xSemaphoreGive(xBinarySemaphore);   
+//         printf("Periodic task - About interrupt generated.\n\n");
+//     }
+// }
+// // void set_in(){
+// //     attachInterrupt(button, isr, FALLING);
+// // }
+
+// void app_main(void)
+// {
+//     xBinarySemaphore = xSemaphoreCreateBinary();
+
+//     if (xBinarySemaphore != NULL)
+//     {
+//         // if(button) button = 0;
+//         xTaskCreate(vHandlerTask, "Handler", 2048, NULL, 3, NULL);
+//         xTaskCreate(vPeriodicTask, "Periodic", 2048, NULL, 1, NULL);
+//         printf("Tasks created. System running.\n");
+//     }
+//     else
+//     {
+//         printf("Failed to create semaphore.\n");
+//     }
+// }
+// /// han che binary semaphore
+
+/*
+ *  Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
+ *
+ *  SPDX-License-Identifier: MIT-0
+ * 
+ *  VISIT http://www.FreeRTOS.org TO ENSURE YOU ARE USING THE LATEST VERSION.
+ *
+ *  This file is part of the FreeRTOS distribution.
+ * 
+ *  This contains the Windows port implementation of the examples listed in the 
+ *  FreeRTOS book Mastering_the_FreeRTOS_Real_Time_Kernel.
+ *
+ */
+
+/* FreeRTOS.org includes. */
+// #include "FreeRTOS.h"
+// #include "task.h"
+
+
+/* Demo includes. */
+// #include "supporting_functions.h"
+
+// #include <stdio.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "freertos/semphr.h"
+#include "driver/gpio.h"
+// #include "esp_rom_printf.h"
+#define GPIO_INPUT_IO     0
+#define GPIO_INPUT_PIN_SEL (1ULL << GPIO_INPUT_IO)
+#include "esp_rom_sys.h"
+SemaphoreHandle_t xCountingSemaphore;
+
+/*-----------------------------------------------------------*/
+static uint32_t ulExampleInterruptHandler(void);
+
+static void IRAM_ATTR gpio_isr_handler(void* arg)
+{
+    ulExampleInterruptHandler();
+    vsiprintf("Periodic task - Interrupt generated.\n");
+}
+
+/*-----------------------------------------------------------*/
+
+static uint32_t ulExampleInterruptHandler( void )
+{
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+
+    portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+    return 0;
+}
+
+static void vHandlerTask( void * pvParameters )
+{
+    for( ;; )
+    {
+        xSemaphoreTake( xCountingSemaphore, portMAX_DELAY );
+        printf("Handler task - Processing event.\n");
+    }
+}
+
+static void vPeriodicTask( void * pvParameters )
+{
+    const TickType_t xDelay = pdMS_TO_TICKS( 100 );
+    for( ;; )
+    {
+        vTaskDelay( xDelay );
+        printf("Periodic task - About to generate an interrupt.\n");
+    }
+}
+
+static void init_gpio_interrupt()
+{
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_NEGEDGE,    // Ngắt cạnh xuống (nhấn nút)
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = GPIO_INPUT_PIN_SEL,
+        .pull_up_en = GPIO_PULLUP_ENABLE,  // Kéo lên để dùng nút GND
+    };
+    gpio_config(&io_conf);
+
+    gpio_install_isr_service(0);  // Dùng ISR service mặc định
+    gpio_isr_handler_add(GPIO_INPUT_IO, gpio_isr_handler, NULL);
+}
+
+void app_main( void )
+{
+    xCountingSemaphore = xSemaphoreCreateCounting(10, 0);
+
+    if( xCountingSemaphore != NULL )
+    {
+        init_gpio_interrupt();
+
+        xTaskCreate(vHandlerTask, "HandlerTask", 2048, NULL, 3, NULL);
+        xTaskCreate(vPeriodicTask, "PeriodicTask", 2048, NULL, 1, NULL);
+
+        // printf( "System ready. Press the button on GPIO 0 to trigger interrupt.");
+    }
+}
